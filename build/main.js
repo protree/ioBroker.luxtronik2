@@ -418,6 +418,9 @@ class Luxtronik2 extends utils.Adapter {
             let shouldSave = false;
             for (let i = 0; i < message.Content.item.length; i++) {
                 const section = message.Content.item[i];
+                const logmessage = JSON.stringify(section);
+                this.log.silly(`section in message: ${logmessage}`)
+                this.log.silly(`navigationId: ${navigationId}`)
                 const sectionHandler = this.createHandler(section, navigationId, sectionIds);
                 if (!sectionHandler) {
                     continue;
@@ -434,7 +437,62 @@ class Luxtronik2 extends utils.Adapter {
                 const itemIds = [];
                 for (let j = 0; j < section.item.length; j++) {
                     const item = section.item[j];
-                    try {
+                    const logmessage = JSON.stringify(item);
+                    this.log.silly(`item in section: ${logmessage}`)
+                    this.log.silly(`sectionHandler.id: ${sectionHandler.id}`)
+                    
+                    // Handle SubSections (If item contains more items, create Subsection and iterate through (sub)items with correct ids)
+                    if ('item' in item) {
+                      this.log.silly(`SubSection!`)
+                      const subSection = item;
+                      const subNavigationID = sectionHandler.id;
+                      const subSectionHandler = this.createHandler(subSection, subNavigationID, sectionIds);
+                      if (!subSectionHandler) {
+                          continue;
+                      }
+                      if (!this.handlers[subSectionHandler.id]) {
+                          this.handlers[subSectionHandler.id] = subSectionHandler;
+                          await subSectionHandler.extendObjectAsync();
+                      }
+                      this.log.silly(`subSectionHandler.id: ${subSectionHandler.id}`)
+                      for (let k = 0; k < subSection.item.length; k++) {
+                          const item = subSection.item[k];
+                          const logmessage = JSON.stringify(item);
+                          this.log.silly(`item in subSection: ${logmessage}`)
+                          try {
+                            const itemHandler = this.createHandler(item, subSectionHandler.id, itemIds);
+                            if (!itemHandler) {
+                                continue;
+                            }
+                            if (!this.handlers[itemHandler.id]) {
+                                this.log.silly(`Creating ${itemHandler.id}`);
+                                await itemHandler.extendObjectAsync();
+                                this.handlers[itemHandler.id] = itemHandler;
+                            }
+                            if (this.requestedUpdates.length === 0) {
+                                this.log.silly(`Setting state of ${itemHandler.id}`);
+                                await itemHandler.setStateAsync();
+                            }
+                            else {
+                                const updateIndex = this.requestedUpdates.findIndex((ch) => ch.id === itemHandler.id);
+                                if (updateIndex >= 0) {
+                                    const cmd = itemHandler.createSetCommand(this.requestedUpdates[updateIndex].value);
+                                    this.log.debug(`Sending ${cmd}`);
+                                    (_a = this.getSentry()) === null || _a === void 0 ? void 0 : _a.addBreadcrumb({ type: 'http', category: 'ws', data: { url: cmd } });
+                                    (_b = this.webSocket) === null || _b === void 0 ? void 0 : _b.send(cmd);
+                                    this.requestedUpdates.splice(updateIndex);
+                                    shouldSave = true;
+                                }
+                            }
+                          }
+                          catch (error) {
+                              this.log.error(`Couldn't handle '${subSectionHandler.id}' -> '${item.name[0]}': ${error}`);
+                              (_c = this.getSentry()) === null || _c === void 0 ? void 0 : _c.captureException(error, { extra: { section: subSectionHandler.id, item } });
+                          }
+                      }
+                    } else {
+                      this.log.silly(`No SubSection!`)
+                      try {
                         const itemHandler = this.createHandler(item, sectionHandler.id, itemIds);
                         if (!itemHandler) {
                             continue;
@@ -459,11 +517,14 @@ class Luxtronik2 extends utils.Adapter {
                                 shouldSave = true;
                             }
                         }
+                      }
+                      catch (error) {
+                          this.log.error(`Couldn't handle '${sectionHandler.id}' -> '${item.name[0]}': ${error}`);
+                          (_c = this.getSentry()) === null || _c === void 0 ? void 0 : _c.captureException(error, { extra: { section: sectionHandler.id, item } });
+                      }
                     }
-                    catch (error) {
-                        this.log.error(`Couldn't handle '${sectionHandler.id}' -> '${item.name[0]}': ${error}`);
-                        (_c = this.getSentry()) === null || _c === void 0 ? void 0 : _c.captureException(error, { extra: { section: sectionHandler.id, item } });
-                    }
+                    
+
                 }
             }
             if (shouldSave) {
