@@ -13,7 +13,7 @@
 
 **Tests:** ![Test and Release](https://github.com/UncleSamSwiss/ioBroker.luxtronik2/workflows/Test%20and%20Release/badge.svg)
 
-## luxtronik2 adapter for ioBroker
+## luxtronik2 adapter for ioBroker, changed by protree
 
 Connects to Luxtronik 2 heatpump controllers over LAN and WebSocket
 
